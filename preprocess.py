@@ -6,6 +6,7 @@ Created on Fri Apr 28 13:00:52 2017
 """
 
 import pandas as pd
+import numpy as np
 import zipfile
 import os
 
@@ -19,6 +20,15 @@ subdir = os.path.join(os.path.curdir, "data")
 openpv_zip = os.path.join(subdir, "openpv_all.zip")
 openpv_csv = os.path.join(subdir, "openpv_all.csv")
 censusfips_csv = os.path.join(subdir, "fips_national_county.txt")
+election_csv = os.path.join(subdir, "2016_US_County_Level_Presidential_Results.csv")
+
+output_csv = os.path.join(subdir, "combined_data.csv")
+
+with open('censusapi.txt') as file:
+    census_key = file.read()
+
+# Create API request
+acs_url = "https://api.census.gov/data/2015/acs1?get=B01001_001E,B01002_001E,B01001A_001E,B19013_001E,B25077_001E&for=county:*&key=" + census_key
 
 # Check if CSV file already exists, and unzip it if it does not
 if not os.path.isfile(openpv_csv):
@@ -44,7 +54,7 @@ fips['combinedid'] = fips['stateid'] + fips['countyid']
 fips_dict = dict(zip(fips['combined'], fips['combinedid']))
 
 # Special code for Alaska (not many entries in PV data anyway)
-fips_dict['AK-Alaska'] = '02000'
+fips_dict['AK-Alaska'] = '02013'
 
 
 # Load PV data        
@@ -81,5 +91,30 @@ PVdata.loc[PVdata['state'] == 'DE', 'county'] = PVdata.loc[PVdata['state'] == 'D
 
 # Combine county and state names and assign fips ID
 PVdata['combined'] = PVdata['state'] + '-' + PVdata['county']
-PVdata['fips'] = PVdata['combined'].map(fips_dict)
+
+PVdata_agg = PVdata.groupby('combined').agg(np.sum)
+PVdata_agg.reset_index(inplace=True)
+
+PVdata_agg['fips'] = PVdata_agg['combined'].map(fips_dict)
+
+election_results = pd.read_csv(election_csv, dtype = {'combined_fips' : str})
+
+election_results['fips'] = election_results['combined_fips'].str.zfill(5)
+
+
+census = pd.read_json(acs_url)
+
+census = census.drop(0)
+
+census.columns = ['Population', 'Median Age', 'White Population', 
+                  'Median Household Income', 'Median House Price', 'State', 'County']
+
+census['fips'] = census['State'] + census['County']
+
+
+combined_data = PVdata_agg.merge(election_results, on = 'fips')
+combined_data = combined_data.merge(census, on = 'fips')
+
+combined_data.to_csv(output_csv)
+
 
