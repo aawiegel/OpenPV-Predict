@@ -7,6 +7,7 @@ Created on Fri Apr 28 13:00:52 2017
 
 import pandas as pd
 import numpy as np
+import requests
 import zipfile
 import os
 
@@ -28,7 +29,12 @@ with open('censusapi.txt') as file:
     census_key = file.read()
 
 # Create API request
-acs_url = "https://api.census.gov/data/2015/acs1?get=B01001_001E,B01002_001E,B01001A_001E,B19013_001E,B25077_001E,B15003_022E,B08006_003E&for=county:*&key=" + census_key
+acs_url = "https://api.census.gov/data/2015/acs1"
+payload = {"get" : "B01001_001E,B01002_001E,B01001A_001E,B19013_001E,B25077_001E,B15003_022E,B08006_003E",
+           "for" : "county:*",
+           "key" : census_key}
+
+
 
 # Check if CSV file already exists, and unzip it if it does not
 if not os.path.isfile(openpv_csv):
@@ -102,7 +108,11 @@ election_results = pd.read_csv(election_csv, dtype = {'combined_fips' : str})
 election_results['fips'] = election_results['combined_fips'].str.zfill(5)
 
 
-census = pd.read_json(acs_url)
+# GET census data
+
+r = requests.get(acs_url, params=payload)
+
+census = pd.read_json(r.text)
 
 census = census.drop(0)
 
