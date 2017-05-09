@@ -73,22 +73,50 @@ lat_dict = dict(zip(fips['GEOID'], fips['INTPTLAT']))
 # Special code for Alaska (not many entries in PV data anyway)
 fips_dict['AK-Alaska'] = '02013'
 
+# Create NREL API call for PV data
+nrel_url = "https://developer.nrel.gov/api/solar/open_pv/installs/rankings"
+
+# Create empty dataframe
+
+PVdata = pd.DataFrame()
+
+for state in fips['USPS'].unique():
+        
+    # Create API request
+    nrel_params = {'api_key' : nrel_key, 'state' : state}
+    nrel_request = requests.get(nrel_url, params=nrel_params)
+    
+    # Load as dictionary/list
+    nrel_json = nrel_request.json()
+    
+    # Load result of API call into temporary dataframe
+    temp_frame = pd.DataFrame(nrel_json['result'])
+    
+    # Rename columns
+    temp_frame.rename(columns={'cap' : 'capacity', 'name' : 'county'}, inplace=True)
+    
+    # Add column for state
+    temp_frame['state'] = state
+    
+    # concatenate with previous dataframe
+    PVdata = pd.concat([PVdata, temp_frame])
+    
 
 # Load PV data        
-PVdata = pd.read_csv(openpv_csv, 
-                     usecols=[0, 1, 2, 3, 4, 6, 7, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-                     dtype = {'zipcode' : str})
+#PVdata = pd.read_csv(openpv_csv, 
+#                     usecols=[0, 1, 2, 3, 4, 6, 7, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+#                     dtype = {'zipcode' : str})
 
 
     
 # Remove data where installation type is unavailable, non-residential, has no county,
 # or where the PV capacity is clearly misentered (A 5 acre solar farm has about ~1MW capacity)
 
-PVdata = PVdata[PVdata['install_type'].isnull() == False]
-PVdata = PVdata[PVdata['install_type'].str.contains('^[Rr]esidential')]
+#PVdata = PVdata[PVdata['install_type'].isnull() == False]
+#PVdata = PVdata[PVdata['install_type'].str.contains('^[Rr]esidential')]
 PVdata.loc[PVdata['state'] == 'AK', 'county'] = 'Alaska'
 PVdata = PVdata[PVdata['county'].isnull() == False]
-PVdata = PVdata[PVdata['size_kw'] < 1E3]
+#PVdata = PVdata[PVdata['size_kw'] < 1E3]
 
 # Fix misspelled county names
 PVdata['county'] = PVdata['county'].str.replace('Doa Ana|Doña Ana|Do̱a Ana', 'Dona Ana')
@@ -109,10 +137,14 @@ PVdata.loc[PVdata['state'] == 'DE', 'county'] = PVdata.loc[PVdata['state'] == 'D
 # Combine county and state names and assign fips ID
 PVdata['combined'] = PVdata['state'] + '-' + PVdata['county']
 
-PVdata_agg = PVdata.groupby('combined').agg(np.sum)
-PVdata_agg.reset_index(inplace=True)
+PVdata['fips'] = PVdata['combined'].map(fips_dict)
+PVdata['longitude'] = PVdata['fips'].map(long_dict)
+PVdata['latitude'] = PVdata['fips'].map(lat_dict)
 
-PVdata_agg['fips'] = PVdata_agg['combined'].map(fips_dict)
+#PVdata_agg = PVdata.groupby('combined').agg(np.sum)
+#PVdata_agg.reset_index(inplace=True)
+
+#PVdata_agg['fips'] = PVdata_agg['combined'].map(fips_dict)
 
 election_results = pd.read_csv(election_csv, dtype = {'combined_fips' : str})
 
@@ -139,9 +171,9 @@ census.columns = ['Population', 'Median Age', 'White Population',
 census['fips'] = census['State'] + census['County']
 
 
-combined_data = PVdata_agg.merge(election_results, on = 'fips')
-combined_data = combined_data.merge(census, on = 'fips')
+combined_data = PVdata.merge(election_results, on = 'fips')
+combined_data2 = combined_data.merge(census, on = 'fips')
 
-combined_data.to_csv(output_csv)
+combined_data2.to_csv(output_csv)
 
 
