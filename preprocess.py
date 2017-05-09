@@ -20,19 +20,19 @@ subdir = os.path.join(os.path.curdir, "data")
 # Create OS-independent file names
 openpv_zip = os.path.join(subdir, "openpv_all.zip")
 openpv_csv = os.path.join(subdir, "openpv_all.csv")
-censusfips_csv = os.path.join(subdir, "fips_national_county.txt")
 election_csv = os.path.join(subdir, "2016_US_County_Level_Presidential_Results.csv")
+
+censusgazette = os.path.join(subdir, "Gaz_counties_national")
 
 output_csv = os.path.join(subdir, "combined_data.csv")
 
+# Get API keys
+
 with open('censusapi.txt') as file:
     census_key = file.read()
-
-# Create API request
-acs_url = "https://api.census.gov/data/2015/acs1"
-payload = {"get" : "B01001_001E,B01002_001E,B01001A_001E,B19013_001E,B25077_001E,B15003_022E,B08006_003E",
-           "for" : "county:*",
-           "key" : census_key}
+    
+with open('nrelapi.txt') as file:
+    nrel_key = file.read()
 
 
 
@@ -41,23 +41,34 @@ if not os.path.isfile(openpv_csv):
     with zipfile.ZipFile(openpv_zip, "r") as zip_ref:
         zip_ref.extractall(subdir)
 
-# Load census fips
-fips = pd.read_csv(censusfips_csv, header=None, 
-                   names = ["state", "stateid", "countyid", "countyname", "fips code type"],
-                   dtype = {'state' : str, "stateid" : str, "countyid" : str})
+# Check if tab deliminated txt file alaready exists, and unzip if it does not
+if not os.path.isfile(censusgazette+".txt"):
+    with zipfile.ZipFile(censusgazette+".zip", "r") as zip_ref:
+        zip_ref.extractall(subdir)
 
+# Load census fips and lat/long
+fips = pd.read_table(censusgazette+".txt", dtype = {'GEOID' : str},
+                     skip_blank_lines=True, encoding = "ISO-8859-1")
+                  
+# Remove white space    
+fips.columns = fips.columns.str.strip()
+    
 # Strip 'county' and 'borough' from county names
-fips['countyname'] = fips['countyname'].str.replace(' County| Borough| Parish| Municipio', '')
+fips['NAME'] = fips['NAME'].str.replace(' County| Borough| Parish| Municipio', '')
 
 
 # Combine county and state names
 
-fips['combined'] = fips['state'] + '-' + fips['countyname']
-fips['combinedid'] = fips['stateid'] + fips['countyid']
+fips['combined'] = fips['USPS'] + '-' + fips['NAME']
 
 # Create fips dictionary
 
-fips_dict = dict(zip(fips['combined'], fips['combinedid']))
+fips_dict = dict(zip(fips['combined'], fips['GEOID']))
+
+# Create latitude and longitude dictionaries
+
+long_dict = dict(zip(fips['GEOID'], fips['INTPTLONG']))
+lat_dict = dict(zip(fips['GEOID'], fips['INTPTLAT']))
 
 # Special code for Alaska (not many entries in PV data anyway)
 fips_dict['AK-Alaska'] = '02013'
@@ -107,12 +118,17 @@ election_results = pd.read_csv(election_csv, dtype = {'combined_fips' : str})
 
 election_results['fips'] = election_results['combined_fips'].str.zfill(5)
 
+# Create Census API request
+acs_url = "https://api.census.gov/data/2015/acs1"
+payload = {"get" : "B01001_001E,B01002_001E,B01001A_001E,B19013_001E,B25077_001E,B15003_022E,B08006_003E",
+           "for" : "county:*",
+           "key" : census_key}
 
 # GET census data
 
-r = requests.get(acs_url, params=payload)
+census_req = requests.get(acs_url, params=payload)
 
-census = pd.read_json(r.text)
+census = pd.read_json(census_req.text)
 
 census = census.drop(0)
 
