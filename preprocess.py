@@ -18,8 +18,6 @@ import os
 subdir = os.path.join(os.path.curdir, "data")
 
 # Create OS-independent file names
-openpv_zip = os.path.join(subdir, "openpv_all.zip")
-openpv_csv = os.path.join(subdir, "openpv_all.csv")
 election_csv = os.path.join(subdir, "2016_US_County_Level_Presidential_Results.csv")
 
 censusgazette = os.path.join(subdir, "Gaz_counties_national")
@@ -35,11 +33,6 @@ with open('nrelapi.txt') as file:
     nrel_key = file.read()
 
 
-
-# Check if CSV file already exists, and unzip it if it does not
-if not os.path.isfile(openpv_csv):
-    with zipfile.ZipFile(openpv_zip, "r") as zip_ref:
-        zip_ref.extractall(subdir)
 
 # Check if tab deliminated txt file alaready exists, and unzip if it does not
 if not os.path.isfile(censusgazette+".txt"):
@@ -95,28 +88,24 @@ for state in fips['USPS'].unique():
     # Rename columns
     temp_frame.rename(columns={'cap' : 'capacity', 'name' : 'county'}, inplace=True)
     
+    # Replace 0s in cost with weighted average for state
+    temp_frame2 = temp_frame[temp_frame['cost'] > 0]
+    avg_cost = (temp_frame2['cost'] * temp_frame2['capacity']).sum() / temp_frame2['capacity'].sum()
+    temp_frame.loc[temp_frame['cost'] == 0, 'cost'] = avg_cost
+    
+    
     # Add column for state
     temp_frame['state'] = state
     
     # concatenate with previous dataframe
     PVdata = pd.concat([PVdata, temp_frame])
     
-
-# Load PV data        
-#PVdata = pd.read_csv(openpv_csv, 
-#                     usecols=[0, 1, 2, 3, 4, 6, 7, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-#                     dtype = {'zipcode' : str})
-
-
     
-# Remove data where installation type is unavailable, non-residential, has no county,
-# or where the PV capacity is clearly misentered (A 5 acre solar farm has about ~1MW capacity)
+# Remove data where installation type has no county
 
-#PVdata = PVdata[PVdata['install_type'].isnull() == False]
-#PVdata = PVdata[PVdata['install_type'].str.contains('^[Rr]esidential')]
 PVdata.loc[PVdata['state'] == 'AK', 'county'] = 'Alaska'
 PVdata = PVdata[PVdata['county'].isnull() == False]
-#PVdata = PVdata[PVdata['size_kw'] < 1E3]
+
 
 # Fix misspelled county names
 PVdata['county'] = PVdata['county'].str.replace('Doa Ana|Doña Ana|Do̱a Ana', 'Dona Ana')
@@ -141,14 +130,13 @@ PVdata['fips'] = PVdata['combined'].map(fips_dict)
 PVdata['longitude'] = PVdata['fips'].map(long_dict)
 PVdata['latitude'] = PVdata['fips'].map(lat_dict)
 
-#PVdata_agg = PVdata.groupby('combined').agg(np.sum)
-#PVdata_agg.reset_index(inplace=True)
 
-#PVdata_agg['fips'] = PVdata_agg['combined'].map(fips_dict)
 
 election_results = pd.read_csv(election_csv, dtype = {'combined_fips' : str})
 
-election_results['fips'] = election_results['combined_fips'].str.zfill(5)
+election_results.rename(columns={'combined_fips' : 'fips'}, inplace=True)
+
+election_results['fips'] = election_results['fips'].str.zfill(5)
 
 # Create Census API request
 acs_url = "https://api.census.gov/data/2015/acs1"
@@ -171,8 +159,8 @@ census.columns = ['Population', 'Median Age', 'White Population',
 census['fips'] = census['State'] + census['County']
 
 
-combined_data = PVdata.merge(election_results, on = 'fips')
-combined_data2 = combined_data.merge(census, on = 'fips')
+combined_data = PVdata.merge(election_results, on = 'fips', left_index=True)
+combined_data2 = combined_data.merge(census, on = 'fips', left_index=True)
 
 combined_data2.to_csv(output_csv)
 
